@@ -1,0 +1,41 @@
+# ============================================================
+# GASPILLOMÈTRE - Configuration des classes d'aliments
+# ============================================================
+#
+# Ce fichier définit le dataset pour YOLOv8.
+# Il sera lu automatiquement par ultralytics lors de
+# l'entraînement et de la validation du modèle.
+#
+# Format YOLO :
+#   - path   : chemin racine du dataset (relatif à ce fichier)
+#   - train  : sous-dossier des images d'entraînement
+#   - val    : sous-dossier des images de validation
+#   - names  : dictionnaire {id_classe: nom_classe}
+#   - nc     : nombre total de classes
+#
+# Pour ajouter une nouvelle classe :
+#   1. Ajouter une entrée dans "names" avec un nouvel id
+#   2. Mettre à jour "nc" pour refléter le nouveau total
+#   3. Ré-annoter les images concernées avec ce nouvel id
+# ============================================================
+
+# Chemin relatif vers le dossier data/ depuis ce fichier
+path: ../data
+
+# Sous-dossiers contenant les images d'entraînement et de validation
+train: images/train
+val: images/val
+
+# Liste des classes d'aliments détectables sur les plateaux
+# Pour l'instant on part sur 6 catégories de base,
+# cette liste sera affinée après les premières annotations
+names:
+  0: food      # Catégorie générique "aliment" (fourre-tout)
+  1: meat      # Viande / protéine animale
+  2: pasta     # Féculents type pâtes, riz, etc.
+  3: apple     # Pomme (fruit entier ou entamé)
+  4: banana    # Banane
+  5: bread     # Pain
+
+# Nombre de classes — doit correspondre au nombre d'entrées dans "names"
+nc: 6

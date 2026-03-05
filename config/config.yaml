@@ -1,0 +1,69 @@
+# ============================================================
+# GASPILLOMÈTRE - Configuration générale
+# ============================================================
+#
+# Ce fichier centralise tous les paramètres du projet :
+#   - Choix du modèle YOLO et ses seuils
+#   - Hyperparamètres d'entraînement
+#   - Paramètres d'estimation de poids (à calibrer plus tard)
+#   - Chemins des dossiers du projet
+#
+# Les valeurs ci-dessous sont des valeurs de départ,
+# elles devront être ajustées au fil des expérimentations.
+# ============================================================
+
+
+# --- Modèle YOLO ---
+# On choisit yolov8n (nano) pour commencer : c'est le plus
+# léger et le plus rapide. Idéal pour un premier prototype.
+# Variantes disponibles : yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+# (du plus léger au plus lourd)
+model:
+  name: yolov8n                # Architecture du modèle
+  confidence_threshold: 0.25   # Seuil min de confiance pour garder une détection
+  iou_threshold: 0.45          # Seuil IoU pour le Non-Maximum Suppression
+  imgsz: 640                   # Taille des images en entrée du réseau (pixels)
+
+
+# --- Entraînement ---
+# Ces hyperparamètres contrôlent le processus d'entraînement.
+# À ajuster après les premiers tests.
+training:
+  epochs: 100          # Nombre max d'epochs
+  batch_size: 8        # Taille du batch
+  patience: 20         # Early stopping 
+  lr0: 0.01            # Learning rate initial
+  lrf: 0.01            # Learning rate final
+  augment: true        # Activer les augmentations de données 
+  pretrained: true     # Utiliser le transfer learning depuis les poids pré-entraînés COCO
+
+
+# --- Estimation de poids ---
+# TODO : cette partie sera implémentée plus tard.
+# L'idée : à partir de la surface de la bounding box détectée,
+# on estime le poids de l'aliment en utilisant une densité
+# surfacique moyenne (g/cm²) par catégorie.
+#
+# reference_tray_area_cm2 : surface réelle d'un plateau standard
+# density_g_per_cm2 : densité estimée par type d'aliment
+#
+# Ces valeurs sont très approximatives et devront être
+# calibrées avec des mesures réelles (balance).
+weight_estimation:
+  reference_tray_area_cm2: 1200
+  density_g_per_cm2:
+    bread: 0.35
+    meat: 0.85
+    pasta: 0.50
+    banana: 0.60
+    apple: 0.70
+    food: 0.65
+
+
+# --- Chemins ---
+# Chemins relatifs des dossiers du projet
+paths:
+  data_dir: data
+  models_dir: models
+  results_dir: results
+  logs_dir: logs
