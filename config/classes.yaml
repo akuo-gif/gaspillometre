@@ -30,12 +30,14 @@ val: images/val
 # Pour l'instant on part sur 6 catégories de base,
 # cette liste sera affinée après les premières annotations
 names:
-  0: food      # Catégorie générique "aliment" (fourre-tout)
-  1: meat      # Viande / protéine animale
-  2: pasta     # Féculents type pâtes, riz, etc.
-  3: apple     # Pomme (fruit entier ou entamé)
-  4: banana    # Banane
-  5: bread     # Pain
+  0: apple     # Pomme (fruit entier ou entamé)
+  1: banana    # Banane
+  2: bread     # Pain
+  3: fish      # Poisson
+  4: food      # Catégorie générique "aliment" (fourre-tout)
+  5: meat      # Viande / protéine animale
+  6: mixture   # Mélange / plat composé
+  7: pasta     # Féculents type pâtes, riz, etc.
 
 # Nombre de classes — doit correspondre au nombre d'entrées dans "names"
-nc: 6
+nc: 8
