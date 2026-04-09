@@ -1,38 +1,12 @@
 # Gaspillomètre
 
-> Projet de détection du gaspillage alimentaire en cantine scolaire à l'aide de la vision par ordinateur (YOLOv8).
+Détection du gaspillage alimentaire sur photos de plateaux repas avec YOLOv8.
 
-## Objectif
+## Classes détectées
 
-L'idée est de photographier les plateaux repas en fin de service et d'utiliser un modèle de détection d'objets pour :
-- Identifier les aliments restants sur le plateau
-- Estimer le poids du gaspillage
-- Produire des statistiques pour sensibiliser au gaspillage
+food, meat, pasta, apple, banana, bread
 
-## État du projet
-
-Le projet en est à ses **tout débuts**. Pour l'instant, seules les bases sont posées :
-- Structure des dossiers
-- Fichiers de configuration (classes d'aliments, hyperparamètres)
-
-Rien n'est encore fonctionnel — voir le fichier `TODO.md` pour les prochaines étapes.
-
-## Structure prévue
-
-```
-config/              # Fichiers de configuration YAML
-data/                # Dataset YOLO (images + labels, train/val)
-imageplateau/        # Photos brutes des plateaux (à collecter)
-models/              # Modèle entraîné (.pt) — vide pour l'instant
-results/             # Résultats d'entraînement et de détection
-logs/                # Logs des détections
-src/
-  prepare_data.py    # Préparation et split du dataset
-  train.py           # Entraînement du modèle YOLOv8
-  inference.py       # Inférence / détection sur images
-```
-
-## Installation (à venir)
+## Installation
 
 ```bash
 python -m venv venv
@@ -40,6 +14,32 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Prochaines étapes
+## Entraîner
 
-Voir [TODO.md](TODO.md)
+```bash
+python src/train.py
+```
+
+## Tester sur une image
+
+```bash
+python src/inference.py --image imageplateau/P1400073.JPG
+```
+
+## Tester sur un dossier
+
+```bash
+python src/inference.py --dir imageplateau/
+```
+
+## Structure
+
+```
+config/          # Configuration (classes, paramètres)
+data/            # Dataset YOLO (images + labels train/val)
+imageplateau/    # Photos originales des plateaux
+models/best.pt   # Modèle entraîné
+src/train.py     # Entraînement
+src/inference.py # Détection
+src/prepare_data.py # Préparation du dataset
+```

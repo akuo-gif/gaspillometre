@@ -1,43 +1,40 @@
 # ============================================================
 # GASPILLOMÈTRE - Configuration des classes d'aliments
 # ============================================================
-#
-# Ce fichier définit le dataset pour YOLOv8.
-# Il sera lu automatiquement par ultralytics lors de
-# l'entraînement et de la validation du modèle.
-#
-# Format YOLO :
-#   - path   : chemin racine du dataset (relatif à ce fichier)
-#   - train  : sous-dossier des images d'entraînement
-#   - val    : sous-dossier des images de validation
-#   - names  : dictionnaire {id_classe: nom_classe}
-#   - nc     : nombre total de classes
-#
-# Pour ajouter une nouvelle classe :
-#   1. Ajouter une entrée dans "names" avec un nouvel id
-#   2. Mettre à jour "nc" pour refléter le nouveau total
-#   3. Ré-annoter les images concernées avec ce nouvel id
-# ============================================================
+# Fichier de configuration du dataset YOLO
+# Ajoutez vos classes ici au fur et à mesure des annotations
 
-# Chemin relatif vers le dossier data/ depuis ce fichier
-path: ../data
-
-# Sous-dossiers contenant les images d'entraînement et de validation
+path: data
 train: images/train
 val: images/val
 
-# Liste des classes d'aliments détectables sur les plateaux
-# Pour l'instant on part sur 6 catégories de base,
-# cette liste sera affinée après les premières annotations
+# Classes d'aliments détectables sur les plateaux
+# Adaptez cette liste à votre cantine / restaurant
 names:
-  0: apple     # Pomme (fruit entier ou entamé)
-  1: banana    # Banane
-  2: bread     # Pain
-  3: fish      # Poisson
-  4: food      # Catégorie générique "aliment" (fourre-tout)
-  5: meat      # Viande / protéine animale
-  6: mixture   # Mélange / plat composé
-  7: pasta     # Féculents type pâtes, riz, etc.
+  0: Yaourt
+  1: apple
+  2: banane
+  3: beignet
+  4: charcuterie
+  5: flajollet
+  6: fromage
+  7: gaspillage
+  8: gateau
+  9: haricot
+  10: legume
+  11: pain
+  12: patate
+  13: pate
+  14: petit_pois
+  15: pizza
+  16: poisson
+  17: poisson_entre
+  18: puree
+  19: ratatouille
+  20: riz
+  21: salade
+  22: saucisse
+  23: viande
 
-# Nombre de classes — doit correspondre au nombre d'entrées dans "names"
-nc: 8
+# Nombre de classes
+nc: 24

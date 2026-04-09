@@ -1,102 +1,337 @@
 """
-GASPILLOMÈTRE - Inférence et estimation du gaspillage
+GASPILLOMÈTRE - Inférence et estimation de gaspillage
 =======================================================
-Ce script sera responsable de :
-1. Charger le modèle YOLOv8 entraîné
-2. Détecter les aliments sur une photo de plateau
-3. Estimer le poids des restes
-4. Calculer le gaspillage et sauvegarder les résultats
+Détecte les aliments sur un plateau, estime le poids
+des restes et calcule le gaspillage.
 
-Usage prévu :
-    python src/inference.py --image chemin/vers/photo.jpg
-    python src/inference.py --dir imageplateau/
+Usage:
+    python src/inference.py --image chemin/image.jpg
+    python src/inference.py --dossier imagesplateau/
 """
 
 import argparse
+import json
+import csv
+import sys
 from pathlib import Path
+from datetime import datetime
+
+import cv2
+import numpy as np
+import yaml
+from ultralytics import YOLO
 
 
-# ---------------------------------------------------------------------------
-# Estimation de poids
-# ---------------------------------------------------------------------------
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CONFIG_DIR = PROJECT_ROOT / "config"
+MODELS_DIR = PROJECT_ROOT / "models"
+RESULTS_DIR = PROJECT_ROOT / "results"
+LOGS_DIR = PROJECT_ROOT / "logs"
+
+
+def load_configs():
+    """Charge toutes les configurations."""
+    with open(CONFIG_DIR / "config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    with open(CONFIG_DIR / "classes.yaml", "r") as f:
+        classes = yaml.safe_load(f)
+    return config, classes
+
+
+def load_model(model_path: str = None) -> YOLO:
+    """Charge le modèle YOLOv8 entraîné."""
+    if model_path:
+        path = Path(model_path)
+    else:
+        path = MODELS_DIR / "best.pt"
+
+    if not path.exists():
+        print(f"  ❌ Modèle non trouvé : {path}")
+        print(f"  Entraînez d'abord avec : python src/train.py")
+        sys.exit(1)
+
+    print(f"  🧠 Modèle chargé : {path}")
+    return YOLO(str(path))
+
 
 class WeightEstimator:
-    """Estime le poids d'un aliment à partir de la surface de sa bounding box."""
+    """
+    Estimateur de poids basé sur la surface détectée.
+    
+    Principe :
+    1. On détecte la boîte englobante de chaque aliment
+    2. On calcule la surface relative par rapport au plateau
+    3. On multiplie par la densité surfacique de l'aliment
+    
+    Remarque : C'est une estimation grossière. Pour plus de précision,
+    il faudrait une caméra de profondeur ou une balance.
+    """
 
-    def __init__(self, config: dict):
-        # TODO: charger les densités g/cm² depuis config
-        pass
+    def __init__(self, config: dict, class_names: dict):
+        self.ref_area = config["weight_estimation"]["reference_tray_area_cm2"]
+        self.densities = config["weight_estimation"]["density_g_per_cm2"]
+        self.class_names = class_names
+        # TODO: brancher une calibration réelle (balance + surface réelle plateau)
+        # pour remplacer le facteur fixe utilisé plus bas.
 
-    def estimate(self, class_id: int, bbox_area_px: float, image_area_px: float) -> float:
-        """Retourne le poids estimé en grammes.  Retourne 0.0 en attendant."""
-        # TODO: implémenter le calcul surface → poids
-        return 0.0
+    def estimate_weight(self, class_name: str, bbox_area_ratio: float) -> float:
+        """
+        Estime le poids d'un aliment détecté.
+        
+        Args:
+            class_name: Nom de la classe d'aliment
+            bbox_area_ratio: Ratio surface bbox / surface image
+        
+        Returns:
+            Poids estimé en grammes
+        """
+        # Surface estimée en cm²
+        area_cm2 = bbox_area_ratio * self.ref_area
 
+        # Densité de l'aliment (g/cm²)
+        density = self.densities.get(class_name, 0.5)  # 0.5 par défaut
 
-# ---------------------------------------------------------------------------
-# Détection principale
-# ---------------------------------------------------------------------------
+        # Poids estimé
+        # Facteur 0.7 : la bbox contient ~70% d'aliment en moyenne
+        weight_g = area_cm2 * density * 0.7
+
+        return round(weight_g, 1)
+
 
 class WasteDetector:
-    """Charge le modèle YOLOv8 et gère la détection sur une image."""
+    """
+    Détecteur de gaspillage alimentaire.
+    Combine détection YOLO + estimation de poids.
+    """
 
-    def __init__(self, model_path: Path, config: dict):
-        # TODO: charger le modèle YOLO avec ultralytics
-        self.model = None
-        self.estimator = WeightEstimator(config)
+    def __init__(self, model: YOLO, config: dict, class_names: dict):
+        self.model = model
+        self.config = config
+        self.class_names = class_names
+        self.weight_estimator = WeightEstimator(config, class_names)
+        self.conf_threshold = config["model"]["confidence_threshold"]
+        self.iou_threshold = config["model"]["iou_threshold"]
 
-    def process_image(self, image_path: Path) -> dict:
-        """Détecte les restes sur une image et retourne les résultats."""
-        # TODO: appeler self.model.predict(), récupérer les boîtes
-        # TODO: appeler self.estimator.estimate() pour chaque détection
-        # TODO: dessiner les bounding boxes annotées
-        return {}
+    def detect(self, image_path: str | np.ndarray) -> dict:
+        """
+        Analyse une image de plateau.
+        
+        Returns:
+            dict avec détections, poids estimés, et image annotée
+        """
+        # Inférence
+        results = self.model(
+            image_path,
+            conf=self.conf_threshold,
+            iou=self.iou_threshold,
+            verbose=False,
+        )
 
-    def log_detection(self, results: dict, output_csv: Path) -> None:
-        """Ajoute une ligne de résultats dans le fichier CSV de sortie."""
-        # TODO: ouvrir output_csv en mode append et écrire une ligne
-        pass
+        result = results[0]
+        img = result.orig_img.copy()
+        img_h, img_w = img.shape[:2]
+        img_area = img_h * img_w
+
+        detections = []
+        total_weight = 0
+
+        if result.boxes is not None and len(result.boxes) > 0:
+            for box in result.boxes:
+                # Extraire les infos
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                conf = float(box.conf[0].cpu().numpy())
+                class_id = int(box.cls[0].cpu().numpy())
+                class_name = self.class_names.get(class_id, f"classe_{class_id}")
+
+                # Surface relative
+                bbox_w = x2 - x1
+                bbox_h = y2 - y1
+                bbox_area_ratio = (bbox_w * bbox_h) / img_area
+
+                # Estimation du poids
+                weight = self.weight_estimator.estimate_weight(class_name, bbox_area_ratio)
+                total_weight += weight
+
+                detection = {
+                    "class_id": class_id,
+                    "class_name": class_name,
+                    "confidence": round(conf, 3),
+                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    "area_ratio": round(bbox_area_ratio, 4),
+                    "weight_g": weight,
+                }
+                detections.append(detection)
+
+                # Dessiner sur l'image
+                color = self._get_color(class_id)
+                cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+
+                label = f"{class_name} {conf:.0%} ~{weight}g"
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                cv2.rectangle(img,
+                              (int(x1), int(y1) - label_size[1] - 10),
+                              (int(x1) + label_size[0], int(y1)),
+                              color, -1)
+                cv2.putText(img, label,
+                            (int(x1), int(y1) - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # Résumé en bas de l'image
+        summary = f"Aliments: {len(detections)} | Poids total: ~{total_weight:.0f}g"
+        cv2.rectangle(img, (0, img_h - 40), (img_w, img_h), (0, 0, 0), -1)
+        cv2.putText(img, summary, (10, img_h - 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+        return {
+            "detections": detections,
+            "total_weight_g": round(total_weight, 1),
+            "num_items": len(detections),
+            "annotated_image": img,
+            "image_size": (img_w, img_h),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _get_color(self, class_id: int) -> tuple:
+        """Couleur unique par classe."""
+        colors = [
+            (107, 107, 255), (76, 205, 196), (69, 183, 209),
+            (150, 206, 180), (255, 234, 167), (221, 160, 221),
+            (152, 216, 200), (247, 220, 111), (187, 143, 206),
+            (133, 193, 233), (248, 196, 113), (130, 224, 170),
+            (241, 148, 138), (174, 214, 241), (215, 189, 226),
+        ]
+        return colors[class_id % len(colors)]
 
 
-# ---------------------------------------------------------------------------
-# Interface en ligne de commande
-# ---------------------------------------------------------------------------
+def log_detection(result: dict, image_name: str, log_file: Path):
+    """Enregistre les résultats dans un fichier CSV."""
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    file_exists = log_file.exists()
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Gaspillomètre — inférence")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--image", type=Path, help="Chemin vers une seule image")
-    group.add_argument("--dir",   type=Path, help="Dossier contenant plusieurs images")
-    group.add_argument("--camera", action="store_true", help="Utiliser la webcam (temps réel)")
-    parser.add_argument("--model",  type=Path, default=Path("models/best.pt"), help="Modèle .pt à utiliser")
-    parser.add_argument("--conf",   type=float, default=0.25, help="Seuil de confiance")
-    parser.add_argument("--output", type=Path, default=Path("results/detections.csv"), help="Fichier CSV de sortie")
-    return parser.parse_args()
+    with open(log_file, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow([
+                "timestamp", "image", "num_items", "total_weight_g",
+                "aliments_detectes", "details_json"
+            ])
+
+        aliments = ", ".join([d["class_name"] for d in result["detections"]])
+        # Convertir les float32 numpy en float Python pour la sérialisation JSON
+        detections_serializable = [
+            {k: (float(v) if isinstance(v, (np.floating,)) else v) for k, v in d.items()}
+            for d in result["detections"]
+        ]
+        details = json.dumps(detections_serializable, ensure_ascii=False)
+        writer.writerow([
+            result["timestamp"],
+            image_name,
+            result["num_items"],
+            result["total_weight_g"],
+            aliments,
+            details,
+        ])
 
 
-def main() -> None:
-    args = parse_args()
+def process_image(detector: WasteDetector, image_path: Path, output_dir: Path, log_file: Path):
+    """Traite une seule image."""
+    print(f"\n  📸 {image_path.name}")
 
-    # TODO: charger config.yaml
-    config = {}
+    result = detector.detect(str(image_path))
 
-    detector = WasteDetector(model_path=args.model, config=config)
+    # Afficher les résultats
+    if result["detections"]:
+        for det in result["detections"]:
+            print(f"    🍽️  {det['class_name']:12s} | confiance: {det['confidence']:.0%} | ~{det['weight_g']}g")
+        print(f"    {'─' * 45}")
+        print(f"    📊 Total: {result['num_items']} aliments, ~{result['total_weight_g']}g")
+    else:
+        print(f"    ⚪ Aucun aliment detecte (plateau vide ?)")
+
+    # Sauvegarder l'image annotée
+    output_path = output_dir / f"detected_{image_path.stem}.jpg"
+    cv2.imwrite(str(output_path), result["annotated_image"])
+    print(f"    💾 Sauvegardé : {output_path.relative_to(PROJECT_ROOT)}")
+
+    # Logger
+    log_detection(result, image_path.name, log_file)
+
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Inférence GASPILLOMÈTRE")
+    parser.add_argument("--image", type=str, help="Chemin vers une image")
+    parser.add_argument("--dossier", "--dir", dest="dossier", type=str,
+                        help="Dossier d'images a traiter")
+    parser.add_argument("--model", type=str, default=None, help="Chemin vers le modèle .pt")
+    parser.add_argument("--conf", type=float, default=None, help="Seuil de confiance")
+    parser.add_argument("--output", type=str, default=None, help="Dossier de sortie")
+    args = parser.parse_args()
+
+    print("\n🍽️  GASPILLOMÈTRE - Détection et estimation")
+    print("=" * 50)
+
+    # Charger configs et modèle
+    config, classes_cfg = load_configs()
+    class_names = classes_cfg["names"]
+
+    if args.conf:
+        config["model"]["confidence_threshold"] = args.conf
+
+    model = load_model(args.model)
+    detector = WasteDetector(model, config, class_names)
+
+    # Dossier de sortie
+    output_dir = Path(args.output) if args.output else RESULTS_DIR / "detections"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_file = LOGS_DIR / "detections.csv"
 
     if args.image:
-        # Traitement d'une seule image
-        results = detector.process_image(args.image)
-        detector.log_detection(results, args.output)
+        image_path = Path(args.image)
+        if not image_path.exists():
+            print(f"  ❌ Image non trouvée : {image_path}")
+            sys.exit(1)
+        process_image(detector, image_path, output_dir, log_file)
 
-    elif args.dir:
-        # Traitement d'un dossier entier
-        image_paths = sorted(args.dir.glob("*.jpg")) + sorted(args.dir.glob("*.png"))
-        for image_path in image_paths:
-            results = detector.process_image(image_path)
-            detector.log_detection(results, args.output)
+    elif args.dossier:
+        dir_path = Path(args.dossier)
+        if not dir_path.exists():
+            print(f"  ❌ Dossier non trouvé : {dir_path}")
+            sys.exit(1)
 
-    elif args.camera:
-        # TODO: implémenter le mode webcam temps réel
-        pass
+        extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+        images = sorted([f for f in dir_path.iterdir() if f.suffix.lower() in extensions])
+        print(f"\n  📂 {len(images)} images trouvées dans {dir_path}")
+
+        if not images:
+            print("  ⚠️  Aucun fichier image compatible trouvé dans ce dossier.")
+            print("  TODO: ajouter un mode récursif (--recursive) pour parcourir les sous-dossiers.")
+            sys.exit(0)
+
+        all_results = []
+        for img_path in images:
+            result = process_image(detector, img_path, output_dir, log_file)
+            all_results.append(result)
+
+        # Résumé global
+        total_items = sum(r["num_items"] for r in all_results)
+        total_weight = sum(r["total_weight_g"] for r in all_results)
+        print(f"\n{'=' * 50}")
+        print(f"📊 RÉSUMÉ GLOBAL")
+        print(f"  Plateaux analysés : {len(all_results)}")
+        print(f"  Aliments détectés : {total_items}")
+        print(f"  Poids total estimé: ~{total_weight:.0f}g ({total_weight/1000:.1f}kg)")
+        print(f"  Moyenne/plateau   : ~{total_weight/len(all_results):.0f}g")
+        print(f"\n  📋 Log : {log_file.relative_to(PROJECT_ROOT)}")
+        print(f"  🖼️  Images : {output_dir.relative_to(PROJECT_ROOT)}/")
+        print("  TODO: exporter aussi un rapport JSON consolidé (pas seulement CSV).")
+
+    else:
+        print("  ℹ️  Fournissez --image ou --dossier")
+        parser.print_help()
+
+    print("\n✅ Terminé !\n")
 
 
 if __name__ == "__main__":

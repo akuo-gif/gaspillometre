@@ -1,16 +1,13 @@
-# Dépendances du projet Gaspillomètre
-# Installer avec : pip install -r requirements.txt
-
-# --- Modèle de détection ---
-ultralytics>=8.0.0        # YOLOv8 — framework de détection d'objets
-
-# --- Traitement d'images ---
-opencv-python>=4.8.0      # Lecture, annotation et sauvegarde d'images
-numpy>=1.24.0             # Manipulation de tableaux (images = arrays numpy)
-Pillow>=10.0.0            # Lecture d'images (utilisé par ultralytics en interne)
-
-# --- Configuration ---
-PyYAML>=6.0               # Lecture des fichiers .yaml
-
-# --- Utilitaires ---
-tqdm>=4.65.0              # Barres de progression dans le terminal
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pandas>=2.0.0
+streamlit>=1.28.0
+plotly>=5.17.0
+Pillow>=10.0.0
+PyYAML>=6.0
+label-studio>=1.10.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+tqdm>=4.65.0

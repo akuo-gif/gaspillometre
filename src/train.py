@@ -1,68 +1,250 @@
 """
 GASPILLOMÈTRE - Entraînement du modèle YOLOv8
 ================================================
-Ce script sera responsable de :
-1. Charger la configuration d'entraînement
-2. Vérifier que le dataset est prêt
-3. Lancer l'entraînement YOLOv8 avec transfer learning
-4. Sauvegarder le meilleur modèle
+Entraîne un modèle YOLOv8 pour la détection d'aliments
+sur les plateaux de cantine.
 
-Usage prévu :
+Utilise le transfer learning depuis les poids pré-entraînés
+sur COCO pour être efficace même avec peu d'images (~80).
+
+Usage:
     python src/train.py
-    python src/train.py --epochs 200 --batch 16
+    python src/train.py --epochs 200 --batch 16 --model yolov8s
+    python src/train.py --resume  # reprendre un entraînement
 """
 
 import argparse
+import sys
 from pathlib import Path
+from datetime import datetime
+
+import yaml
+from ultralytics import YOLO
 
 
-# ---------------------------------------------------------------------------
-# Entraînement
-# ---------------------------------------------------------------------------
-
-def train(config: dict, epochs: int, batch: int, model_name: str, imgsz: int, resume: bool) -> None:
-    """Lance l'entraînement YOLOv8 avec les paramètres donnés."""
-    # TODO: instancier YOLO(model_name) depuis ultralytics
-    # TODO: appeler model.train(...) avec les hyperparamètres de config
-    # TODO: copier le meilleur modèle dans models/best.pt
-    pass
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CONFIG_DIR = PROJECT_ROOT / "config"
+DATA_DIR = PROJECT_ROOT / "data"
+MODELS_DIR = PROJECT_ROOT / "models"
+RESULTS_DIR = PROJECT_ROOT / "results"
 
 
-def validate(model_path: Path, config: dict) -> None:
-    """Évalue le modèle sur le jeu de validation et affiche les métriques."""
-    # TODO: instancier YOLO(model_path) et appeler model.val()
-    # TODO: afficher mAP, précision, rappel
-    pass
+def load_config():
+    """Charge la configuration d'entraînement."""
+    with open(CONFIG_DIR / "config.yaml", "r") as f:
+        return yaml.safe_load(f)
 
 
-# ---------------------------------------------------------------------------
-# Interface en ligne de commande
-# ---------------------------------------------------------------------------
+def check_dataset():
+    """Vérifie que le dataset est prêt pour l'entraînement."""
+    train_imgs = list((DATA_DIR / "images" / "train").glob("*"))
+    val_imgs = list((DATA_DIR / "images" / "val").glob("*"))
+    train_lbls = list((DATA_DIR / "labels" / "train").glob("*.txt"))
+    val_lbls = list((DATA_DIR / "labels" / "val").glob("*.txt"))
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Gaspillomètre — entraînement")
-    parser.add_argument("--epochs", type=int,   default=None,           help="Nombre d'epochs (écrase config.yaml)")
-    parser.add_argument("--batch",  type=int,   default=None,           help="Taille du batch (écrase config.yaml)")
-    parser.add_argument("--model",  type=str,   default=None,           help="Architecture YOLO (ex: yolov8n)")
-    parser.add_argument("--imgsz",  type=int,   default=None,           help="Taille des images en entrée")
-    parser.add_argument("--resume", action="store_true",                help="Reprendre un entraînement interrompu")
-    return parser.parse_args()
+    print("\n📊 État du dataset :")
+    print(f"  Train : {len(train_imgs)} images, {len(train_lbls)} labels")
+    print(f"  Val   : {len(val_imgs)} images, {len(val_lbls)} labels")
+
+    if len(train_imgs) == 0:
+        print("\n  ❌ Aucune image d'entraînement trouvée !")
+        print("  Lancez d'abord :")
+        print("    1. python src/launch_annotation.py  (annoter les images)")
+        print("    2. python src/prepare_data.py        (préparer le dataset)")
+        return False
+
+    if len(train_lbls) == 0:
+        print("\n  ❌ Aucune annotation trouvée !")
+        print("  Annotez d'abord vos images avec Label Studio.")
+        return False
+
+    # Vérifier la cohérence
+    train_img_stems = {Path(f).stem for f in train_imgs}
+    train_lbl_stems = {Path(f).stem for f in train_lbls}
+    missing = train_img_stems - train_lbl_stems
+    if missing:
+        print(f"\n  ⚠️  {len(missing)} images sans annotation dans train/")
+
+    return True
 
 
-def main() -> None:
-    args = parse_args()
+def train(args):
+    """Lance l'entraînement YOLOv8."""
+    config = load_config()
+    model_cfg = config["model"]
+    train_cfg = config["training"]
+    aug_cfg = config.get("augmentations", {})
 
-    # TODO: charger config/config.yaml
-    config = {}
+    # Overrides depuis les arguments CLI
+    model_name = args.model or model_cfg["name"]
+    epochs = args.epochs or train_cfg["epochs"]
+    batch_size = args.batch or train_cfg["batch_size"]
+    imgsz = args.imgsz or model_cfg["imgsz"]
+    patience = args.patience if args.patience is not None else train_cfg["patience"]
 
-    # Les arguments CLI écrasent les valeurs du fichier de config si fournis
-    epochs    = args.epochs or config.get("training", {}).get("epochs", 100)
-    batch     = args.batch  or config.get("training", {}).get("batch_size", 8)
-    model_name = args.model or config.get("model", {}).get("name", "yolov8n")
-    imgsz     = args.imgsz  or config.get("model", {}).get("imgsz", 640)
+    # Hyperparamètres avec valeurs par défaut sûres
+    optimizer = train_cfg.get("optimizer", "auto")
+    weight_decay = train_cfg.get("weight_decay", 0.0005)
+    cos_lr = train_cfg.get("cos_lr", False)
+    close_mosaic = train_cfg.get("close_mosaic", 10)
+    label_smoothing = train_cfg.get("label_smoothing", 0.0)
 
-    train(config=config, epochs=epochs, batch=batch,
-          model_name=model_name, imgsz=imgsz, resume=args.resume)
+    # TODO: ajouter un mode d'auto-ajustement des hyperparamètres
+    # (ex: recherche bayésienne) pour éviter un réglage manuel long.
+
+    # Augmentations configurables (fallback sur anciens réglages)
+    hsv_h = aug_cfg.get("hsv_h", 0.015)
+    hsv_s = aug_cfg.get("hsv_s", 0.7)
+    hsv_v = aug_cfg.get("hsv_v", 0.4)
+    degrees = aug_cfg.get("degrees", 10.0)
+    translate = aug_cfg.get("translate", 0.1)
+    scale = aug_cfg.get("scale", 0.5)
+    shear = aug_cfg.get("shear", 2.0)
+    flipud = aug_cfg.get("flipud", 0.5)
+    fliplr = aug_cfg.get("fliplr", 0.5)
+    mosaic = aug_cfg.get("mosaic", 1.0)
+    mixup = aug_cfg.get("mixup", 0.1)
+
+    print("\n🍽️  GASPILLOMÈTRE - Entraînement du modèle")
+    print("=" * 50)
+
+    # Vérifier le dataset
+    if not check_dataset():
+        sys.exit(1)
+
+    # Charger le modèle
+    data_yaml = str(CONFIG_DIR / "classes.yaml")
+
+    if args.resume:
+        # Reprendre un entraînement
+        last_model = MODELS_DIR / "last.pt"
+        if not last_model.exists():
+            # Chercher dans les résultats YOLO
+            last_candidates = list(RESULTS_DIR.rglob("last.pt"))
+            if last_candidates:
+                last_model = last_candidates[-1]
+            else:
+                print("  ❌ Aucun modèle à reprendre trouvé.")
+                sys.exit(1)
+        print(f"\n  🔄 Reprise depuis : {last_model}")
+        model = YOLO(str(last_model))
+    else:
+        # Nouveau modèle avec transfer learning
+        model_file = f"{model_name}.pt"
+        print(f"\n  🧠 Modèle     : {model_name}")
+        print(f"  📐 Image size : {imgsz}")
+        print(f"  📦 Batch size : {batch_size}")
+        print(f"  🔄 Epochs     : {epochs}")
+        print(f"  ⏱️  Patience   : {patience}")
+        print(f"  ⚙️  Optimizer  : {optimizer}")
+        print(f"  📉 LR initiale: {train_cfg['lr0']}")
+        print(f"  📊 Dataset    : {data_yaml}")
+        model = YOLO(model_file)
+
+    # Créer le dossier de résultats
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    run_name = f"gaspillo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    print(f"\n  🚀 Lancement de l'entraînement...")
+    print(f"  Run: {run_name}")
+    print("  " + "─" * 45)
+
+    # Entraînement
+    results = model.train(
+        data=data_yaml,
+        epochs=epochs,
+        batch=batch_size,
+        imgsz=imgsz,
+        patience=patience,
+        optimizer=optimizer,
+        lr0=train_cfg["lr0"],
+        lrf=train_cfg["lrf"],
+        weight_decay=weight_decay,
+        cos_lr=cos_lr,
+        close_mosaic=close_mosaic,
+        label_smoothing=label_smoothing,
+        # Augmentations pour compenser le petit dataset
+        augment=train_cfg["augment"],  # Active/désactive toutes les augmentations (True/False)
+        hsv_h=hsv_h,
+        hsv_s=hsv_s,
+        hsv_v=hsv_v,
+        degrees=degrees,
+        translate=translate,
+        scale=scale,
+        shear=shear,
+        flipud=flipud,
+        fliplr=fliplr,
+        mosaic=mosaic,
+        mixup=mixup,
+        # Sortie
+        project=str(RESULTS_DIR),
+        name=run_name,
+        save=True,
+        save_period=10,      # Sauvegarder toutes les 10 epochs
+        plots=True,
+        verbose=True,
+    )
+
+    # Sauvegarder le meilleur modèle
+    best_model_src = RESULTS_DIR / run_name / "weights" / "best.pt"
+    if best_model_src.exists():
+        best_model_dst = MODELS_DIR / "best.pt"
+        import shutil
+        shutil.copy2(best_model_src, best_model_dst)
+        print(f"\n  ✅ Meilleur modèle sauvegardé : {best_model_dst.relative_to(PROJECT_ROOT)}")
+
+        last_model_src = RESULTS_DIR / run_name / "weights" / "last.pt"
+        if last_model_src.exists():
+            shutil.copy2(last_model_src, MODELS_DIR / "last.pt")
+
+    # Afficher les résultats
+    print("\n" + "=" * 50)
+    print("📈 RÉSULTATS DE L'ENTRAÎNEMENT")
+    print("=" * 50)
+    print(f"\n  Résultats complets : {RESULTS_DIR / run_name}")
+    print(f"  Meilleur modèle   : models/best.pt")
+    print(f"\n  Pour tester le modèle :")
+    print(f"    python src/inference.py --image <chemin_image>")
+    print(f"    python src/inference.py --dir imageplateau/")
+    print(f"\n  Pour lancer le dashboard :")
+    print(f"    streamlit run src/dashboard.py")
+    print(f"\n  TODO: exporter automatiquement un résumé JSON des métriques.")
+
+    return results
+
+
+def validate(args):
+    """Valide le modèle sur le jeu de validation."""
+    model_path = MODELS_DIR / "best.pt"
+    if not model_path.exists():
+        print("  ❌ Aucun modèle entraîné trouvé (models/best.pt)")
+        sys.exit(1)
+
+    model = YOLO(str(model_path))
+    data_yaml = str(CONFIG_DIR / "classes.yaml")
+
+    print("\n📊 Validation du modèle...")
+    results = model.val(data=data_yaml, verbose=True)
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Entraînement GASPILLOMÈTRE")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Modèle YOLOv8 (yolov8n, yolov8s, yolov8m, yolov8l, yolov8x)")
+    parser.add_argument("--epochs", type=int, default=None, help="Nombre d'epochs")
+    parser.add_argument("--batch", type=int, default=None, help="Taille du batch")
+    parser.add_argument("--imgsz", type=int, default=None, help="Taille des images")
+    parser.add_argument("--patience", type=int, default=None,
+                        help="Patience early stopping (mettre > epochs pour éviter un arrêt prématuré)")
+    parser.add_argument("--resume", action="store_true", help="Reprendre le dernier entraînement")
+    parser.add_argument("--validate", action="store_true", help="Mode validation uniquement")
+    args = parser.parse_args()
+
+    if args.validate:
+        validate(args)
+    else:
+        train(args)
 
 
 if __name__ == "__main__":

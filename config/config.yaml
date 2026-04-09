@@ -1,69 +1,84 @@
 # ============================================================
 # GASPILLOMÈTRE - Configuration générale
 # ============================================================
-#
-# Ce fichier centralise tous les paramètres du projet :
-#   - Choix du modèle YOLO et ses seuils
-#   - Hyperparamètres d'entraînement
-#   - Paramètres d'estimation de poids (à calibrer plus tard)
-#   - Chemins des dossiers du projet
-#
-# Les valeurs ci-dessous sont des valeurs de départ,
-# elles devront être ajustées au fil des expérimentations.
-# ============================================================
 
-
-# --- Modèle YOLO ---
-# On choisit yolov8n (nano) pour commencer : c'est le plus
-# léger et le plus rapide. Idéal pour un premier prototype.
-# Variantes disponibles : yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
-# (du plus léger au plus lourd)
+# --- Modèle ---
 model:
-  name: yolov8n                # Architecture du modèle
-  confidence_threshold: 0.25   # Seuil min de confiance pour garder une détection
-  iou_threshold: 0.45          # Seuil IoU pour le Non-Maximum Suppression
-  imgsz: 640                   # Taille des images en entrée du réseau (pixels)
-
+  name: yolov8n  # nano = rapide, idéal pour prototype (yolov8n, yolov8s, yolov8m, yolov8l, yolov8x)
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+  imgsz: 640
 
 # --- Entraînement ---
-# Ces hyperparamètres contrôlent le processus d'entraînement.
-# À ajuster après les premiers tests.
 training:
-  epochs: 100          # Nombre max d'epochs
-  batch_size: 8        # Taille du batch
-  patience: 20         # Early stopping 
-  lr0: 0.01            # Learning rate initial
-  lrf: 0.01            # Learning rate final
-  augment: true        # Activer les augmentations de données 
-  pretrained: true     # Utiliser le transfer learning depuis les poids pré-entraînés COCO
+  epochs: 200
+  batch_size: 8       # Ajuster selon votre GPU (8 pour ~4GB VRAM)
+  patience: 80        # Laisse le temps de progresser, sans bloquer trop longtemps si ça stagne
+  lr0: 0.003          # Plus stable pour fine-tuning sur petit dataset
+  lrf: 0.01
+  optimizer: AdamW
+  weight_decay: 0.0005
+  cos_lr: true
+  close_mosaic: 20
+  label_smoothing: 0.05
+  augment: true
+  pretrained: true     # Transfer learning depuis COCO
 
+# --- Augmentations YOLO ---
+# Réglages modérés pour éviter de trop déformer les aliments
+augmentations:
+  hsv_h: 0.01
+  hsv_s: 0.4
+  hsv_v: 0.2
+  degrees: 5.0
+  translate: 0.08
+  scale: 0.3
+  shear: 1.0
+  flipud: 0.0
+  fliplr: 0.5
+  mosaic: 0.5
+  mixup: 0.0
 
 # --- Estimation de poids ---
-# TODO : cette partie sera implémentée plus tard.
-# L'idée : à partir de la surface de la bounding box détectée,
-# on estime le poids de l'aliment en utilisant une densité
-# surfacique moyenne (g/cm²) par catégorie.
-#
-# reference_tray_area_cm2 : surface réelle d'un plateau standard
-# density_g_per_cm2 : densité estimée par type d'aliment
-#
-# Ces valeurs sont très approximatives et devront être
-# calibrées avec des mesures réelles (balance).
+# Densité moyenne (g/cm²) pour chaque catégorie d'aliment
+# Ces valeurs sont des estimations initiales à calibrer
 weight_estimation:
-  reference_tray_area_cm2: 1200
+  reference_tray_area_cm2: 1200  # Surface d'un plateau standard en cm²
   density_g_per_cm2:
-    apple: 0.70
-    banana: 0.60
-    bread: 0.35
-    fish: 0.75
-    food: 0.65
-    meat: 0.85
-    mixture: 0.55
-    pasta: 0.50
+    Yaourt: 0.50
+    apple: 0.75
+    banane: 0.50
+    beignet: 0.40
+    charcuterie: 0.70
+    flajollet: 0.65
+    fromage: 0.80
+    gaspillage: 0.60
+    gateau: 0.40
+    haricot: 0.60
+    legume: 0.45
+    pain: 0.35
+    patate: 0.85
+    pate: 0.60
+    petit_pois: 0.35
+    pizza: 0.65
+    poisson: 0.75
+    poisson_entre: 0.70
+    puree: 0.90
+    ratatouille: 0.50
+    riz: 0.70
+    salade: 0.20
+    saucisse: 0.85
+    viande: 0.85
 
+# --- Statistiques ---
+stats:
+  saisons:
+    hiver: [12, 1, 2]
+    printemps: [3, 4, 5]
+    ete: [6, 7, 8]
+    automne: [9, 10, 11]
 
 # --- Chemins ---
-# Chemins relatifs des dossiers du projet
 paths:
   data_dir: data
   models_dir: models
