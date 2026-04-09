@@ -29,132 +29,132 @@ DATA_DIR = PROJECT_ROOT / "data"
 RAW_IMAGES_DIR = PROJECT_ROOT / "imageplateau"
 
 
-def load_config():
+def charger_config():
     """Charge la configuration des classes."""
     with open(CONFIG_DIR / "classes.yaml", "r") as f:
         return yaml.safe_load(f)
 
 
-def setup_directories():
+def creer_dossiers():
     """Crée l'arborescence YOLO attendue."""
-    dirs = [
+    dossiers = [
         DATA_DIR / "images" / "train",
         DATA_DIR / "images" / "val",
         DATA_DIR / "labels" / "train",
         DATA_DIR / "labels" / "val",
     ]
-    for d in dirs:
-        d.mkdir(parents=True, exist_ok=True)
-        print(f"  📁 {d.relative_to(PROJECT_ROOT)}")
-    return dirs
+    for dossier in dossiers:
+        dossier.mkdir(parents=True, exist_ok=True)
+        print(f"  📁 {dossier.relative_to(PROJECT_ROOT)}")
+    return dossiers
 
 
-def find_images(source_dir: Path) -> list:
+def trouver_images(dossier_source: Path) -> list:
     """Trouve toutes les images dans un dossier."""
     extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
     images = []
-    for f in sorted(source_dir.iterdir()):
-        if f.suffix.lower() in extensions:
-            images.append(f)
+    for fichier in sorted(dossier_source.iterdir()):
+        if fichier.suffix.lower() in extensions:
+            images.append(fichier)
     return images
 
 
-def find_annotation(image_path: Path) -> Path | None:
+def trouver_annotation(chemin_image: Path) -> Path | None:
     """
     Cherche le fichier d'annotation YOLO correspondant à une image.
     Recherche dans plusieurs emplacements possibles.
     """
-    stem = image_path.stem
-    search_dirs = [
-        image_path.parent,                          # même dossier
-        image_path.parent / "labels",               # sous-dossier labels
+    stem = chemin_image.stem
+    dossiers_recherche = [
+        chemin_image.parent,                          # même dossier
+        chemin_image.parent / "labels",               # sous-dossier labels
         PROJECT_ROOT / "annotations",               # dossier annotations
         PROJECT_ROOT / "labels",                     # dossier labels
     ]
-    for d in search_dirs:
-        label_file = d / f"{stem}.txt"
-        if label_file.exists():
-            return label_file
+    for dossier in dossiers_recherche:
+        fichier_label = dossier / f"{stem}.txt"
+        if fichier_label.exists():
+            return fichier_label
     return None
 
 
-def validate_annotation(label_path: Path, num_classes: int) -> tuple:
+def valider_annotation(chemin_label: Path, nombre_classes: int) -> tuple:
     """
     Valide un fichier d'annotation YOLO.
-    Retourne (is_valid, num_objects, class_counts, errors).
+    Retourne (est_valide, nb_objets, compte_classes, erreurs).
     """
-    errors = []
-    class_counts = Counter()
-    num_objects = 0
+    erreurs = []
+    compte_classes = Counter()
+    nombre_objets = 0
 
-    with open(label_path, "r") as f:
-        for line_num, line in enumerate(f, 1):
+    with open(chemin_label, "r") as f:
+        for numero_ligne, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             parts = line.split()
             if len(parts) != 5:
-                errors.append(f"Ligne {line_num}: attendu 5 valeurs, trouvé {len(parts)}")
+                erreurs.append(f"Ligne {numero_ligne}: attendu 5 valeurs, trouvé {len(parts)}")
                 continue
 
             try:
-                class_id = int(parts[0])
-                x_center, y_center, width, height = map(float, parts[1:])
+                id_classe = int(parts[0])
+                centre_x, centre_y, largeur, hauteur = map(float, parts[1:])
             except ValueError:
-                errors.append(f"Ligne {line_num}: valeurs non numériques")
+                erreurs.append(f"Ligne {numero_ligne}: valeurs non numériques")
                 continue
 
-            if class_id < 0 or class_id >= num_classes:
-                errors.append(f"Ligne {line_num}: classe {class_id} hors limites [0, {num_classes-1}]")
+            if id_classe < 0 or id_classe >= nombre_classes:
+                erreurs.append(f"Ligne {numero_ligne}: classe {id_classe} hors limites [0, {nombre_classes-1}]")
 
-            for val, name in zip([x_center, y_center, width, height],
+            for val, name in zip([centre_x, centre_y, largeur, hauteur],
                                   ["x_center", "y_center", "width", "height"]):
                 if val < 0 or val > 1:
-                    errors.append(f"Ligne {line_num}: {name}={val} hors [0, 1]")
+                    erreurs.append(f"Ligne {numero_ligne}: {name}={val} hors [0, 1]")
 
-            class_counts[class_id] += 1
-            num_objects += 1
+            compte_classes[id_classe] += 1
+            nombre_objets += 1
 
-    is_valid = len(errors) == 0
-    return is_valid, num_objects, class_counts, errors
+    est_valide = len(erreurs) == 0
+    return est_valide, nombre_objets, compte_classes, erreurs
 
 
-def split_dataset(images: list, labels: dict, train_ratio: float = 0.8, seed: int = 42):
+def separer_jeu_donnees(images: list, labels: dict, ratio_train: float = 0.8, graine: int = 42):
     """
     Sépare les images annotées en ensembles train/val.
     Les images sans annotation sont listées séparément.
     """
-    random.seed(seed)
+    random.seed(graine)
 
     annotated = [(img, labels[img]) for img in images if img in labels]
     unannotated = [img for img in images if img not in labels]
 
     random.shuffle(annotated)
-    split_idx = int(len(annotated) * train_ratio)
+    index_separation = int(len(annotated) * ratio_train)
 
     # TODO: proposer un split stratifié par classe quand le dataset sera plus gros.
 
-    train_set = annotated[:split_idx]
-    val_set = annotated[split_idx:]
+    train_set = annotated[:index_separation]
+    val_set = annotated[index_separation:]
 
     return train_set, val_set, unannotated
 
 
-def copy_files(file_pairs: list, img_dest: Path, lbl_dest: Path):
+def copier_fichiers(paires_fichiers: list, dossier_images: Path, dossier_labels: Path):
     """Copie les paires image/annotation vers les dossiers de destination."""
-    for img_path, lbl_path in tqdm(file_pairs, desc=f"  → {img_dest.parent.name}/{img_dest.name}"):
+    for chemin_image, chemin_label in tqdm(paires_fichiers, desc=f"  → {dossier_images.parent.name}/{dossier_images.name}"):
         # Copier l'image (convertir en .jpg si nécessaire)
-        dest_img = img_dest / img_path.name
-        shutil.copy2(img_path, dest_img)
+        image_destination = dossier_images / chemin_image.name
+        shutil.copy2(chemin_image, image_destination)
 
         # Copier le label
-        dest_lbl = lbl_dest / lbl_path.name
-        shutil.copy2(lbl_path, dest_lbl)
+        label_destination = dossier_labels / chemin_label.name
+        shutil.copy2(chemin_label, label_destination)
 
         # TODO: ajouter option de conversion/compression des images trop lourdes.
 
 
-def generate_stats(train_set, val_set, unannotated, class_names, num_classes):
+def generer_statistiques(train_set, val_set, unannotated, noms_classes, nombre_classes):
     """Affiche les statistiques du dataset."""
     print("\n" + "=" * 60)
     print("📊 STATISTIQUES DU DATASET")
@@ -172,13 +172,13 @@ def generate_stats(train_set, val_set, unannotated, class_names, num_classes):
     # Comptage par classe
     all_counts = Counter()
     for _, lbl_path in train_set + val_set:
-        _, _, counts, _ = validate_annotation(lbl_path, num_classes)
+        _, _, counts, _ = valider_annotation(lbl_path, nombre_classes)
         all_counts.update(counts)
 
     if all_counts:
         print(f"\n  Objets annotés par classe :")
         for class_id in sorted(all_counts.keys()):
-            name = class_names.get(class_id, f"classe_{class_id}")
+            name = noms_classes.get(class_id, f"classe_{class_id}")
             count = all_counts[class_id]
             bar = "█" * min(count, 40)
             print(f"    {name:12s} : {count:4d} {bar}")
@@ -198,13 +198,13 @@ def main():
     parser.add_argument("--split", type=float, default=0.8, help="Ratio train/val (défaut: 0.8)")
     parser.add_argument("--seed", type=int, default=42, help="Seed aléatoire")
     parser.add_argument("--source", type=str, default=None, help="Dossier source des images")
-    args = parser.parse_args()
+    arguments = parser.parse_args()
 
     print("\n🍽️  GASPILLOMÈTRE - Préparation des données")
     print("=" * 50)
 
     # Charger config
-    config = load_config()
+    config = charger_config()
     class_names = config["names"]
     num_classes = config["nc"]
     print(f"\n  Classes configurées : {num_classes}")
@@ -213,12 +213,12 @@ def main():
 
     # Créer les dossiers
     print("\n📁 Création de l'arborescence YOLO...")
-    setup_directories()
+    creer_dossiers()
 
     # Trouver les images
-    source = Path(args.source) if args.source else RAW_IMAGES_DIR
+    source = Path(arguments.source) if arguments.source else RAW_IMAGES_DIR
     print(f"\n🔍 Recherche d'images dans : {source}")
-    images = find_images(source)
+    images = trouver_images(source)
     print(f"  {len(images)} images trouvées")
 
     if not images:
@@ -230,9 +230,9 @@ def main():
     labels = {}
     errors_found = []
     for img in images:
-        lbl = find_annotation(img)
+        lbl = trouver_annotation(img)
         if lbl:
-            is_valid, n_obj, counts, errs = validate_annotation(lbl, num_classes)
+            is_valid, n_obj, counts, errs = valider_annotation(lbl, num_classes)
             if is_valid:
                 labels[img] = lbl
             else:
@@ -249,17 +249,17 @@ def main():
         print("  TODO: produire un rapport d'erreurs dans logs/annotation_errors.txt")
 
     # Séparer train/val
-    print(f"\n✂️  Séparation train/val (ratio={args.split})...")
-    train_set, val_set, unannotated = split_dataset(images, labels, args.split, args.seed)
+    print(f"\n✂️  Séparation train/val (ratio={arguments.split})...")
+    train_set, val_set, unannotated = separer_jeu_donnees(images, labels, arguments.split, arguments.seed)
 
     # Copier les fichiers
     if train_set or val_set:
         print("\n📋 Copie des fichiers...")
-        copy_files(train_set, DATA_DIR / "images" / "train", DATA_DIR / "labels" / "train")
-        copy_files(val_set, DATA_DIR / "images" / "val", DATA_DIR / "labels" / "val")
+        copier_fichiers(train_set, DATA_DIR / "images" / "train", DATA_DIR / "labels" / "train")
+        copier_fichiers(val_set, DATA_DIR / "images" / "val", DATA_DIR / "labels" / "val")
 
     # Statistiques
-    generate_stats(train_set, val_set, unannotated, class_names, num_classes)
+    generer_statistiques(train_set, val_set, unannotated, class_names, num_classes)
 
     if not labels:
         print("\n" + "=" * 60)

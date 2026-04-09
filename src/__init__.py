@@ -1,4 +1,3 @@
-# Ce fichier empêche Python de chercher des modules
-# dans ce dossier de manière implicite.
-# Il est vide pour l'instant, mais pourra contenir
-# des imports communs plus tard.
+# Ce fichier marque le dossier comme un package Python.
+# Il est volontairement vide pour le moment,
+# mais pourra contenir des imports communs plus tard.
