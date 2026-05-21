@@ -262,8 +262,7 @@ def traiter_image(detecteur: DetecteurGaspillage, chemin_image: Path, dossier_so
 def main():
     parser = argparse.ArgumentParser(description="Inférence GASPILLOMÈTRE")
     parser.add_argument("--image", type=str, help="Chemin vers une image")
-    parser.add_argument("--dossier", "--dir", dest="dossier", type=str,
-                        help="Dossier d'images a traiter")
+    parser.add_argument("--dossier", "--dir", dest="dossier", type=str, help="Dossier d'images a traiter")
     parser.add_argument("--model", type=str, default=None, help="Chemin vers le modèle .pt")
     parser.add_argument("--conf", type=float, default=None, help="Seuil de confiance")
     parser.add_argument("--output", type=str, default=None, help="Dossier de sortie")
