@@ -10,7 +10,6 @@ sur COCO pour être efficace même avec peu d'images (~80).
 Usage:
     python src/train.py
     python src/train.py --epochs 200 --batch 16 --model yolov8s
-    python src/train.py --resume  # reprendre un entraînement
 """
 
 import argparse
@@ -42,7 +41,7 @@ def verifier_jeu_donnees():
     labels_train = list((DATA_DIR / "labels" / "train").glob("*.txt"))
     labels_val = list((DATA_DIR / "labels" / "val").glob("*.txt"))
 
-    print("\n📊 État du dataset :")
+    print("\n État du dataset :")
     print(f"  Train : {len(images_train)} images, {len(labels_train)} labels")
     print(f"  Val   : {len(images_val)} images, {len(labels_val)} labels")
 
@@ -79,7 +78,7 @@ def entrainer(arguments):
     nom_modele = arguments.model or cfg_modele["name"]
     epochs = arguments.epochs or cfg_entrainement["epochs"]
     taille_lot = arguments.batch or cfg_entrainement["batch_size"]
-    taille_image = arguments.imgsz or cfg_modele["imgsz"]
+    taille_image = cfg_modele["imgsz"]
     patience = arguments.patience if arguments.patience is not None else cfg_entrainement["patience"]
 
     # Hyperparamètres avec valeurs par défaut sûres
@@ -88,9 +87,6 @@ def entrainer(arguments):
     cos_lr = cfg_entrainement.get("cos_lr", False)
     close_mosaic = cfg_entrainement.get("close_mosaic", 10)
     lissage_labels = cfg_entrainement.get("label_smoothing", 0.0)
-
-    # TODO: ajouter un mode d'auto-ajustement des hyperparamètres
-    # (ex: recherche bayésienne) pour éviter un réglage manuel long.
 
     # Augmentations configurables (fallback sur anciens réglages)
     hsv_h = cfg_augmentations.get("hsv_h", 0.015)
@@ -115,31 +111,17 @@ def entrainer(arguments):
     # Charger le modèle
     data_yaml = str(CONFIG_DIR / "classes.yaml")
 
-    if arguments.resume:
-        # Reprendre un entraînement
-        last_model = MODELS_DIR / "last.pt"
-        if not last_model.exists():
-            # Chercher dans les résultats YOLO
-            last_candidates = list(RESULTS_DIR.rglob("last.pt"))
-            if last_candidates:
-                last_model = last_candidates[-1]
-            else:
-                print("  ❌ Aucun modèle à reprendre trouvé.")
-                sys.exit(1)
-        print(f"\n  🔄 Reprise depuis : {last_model}")
-        modele = YOLO(str(last_model))
-    else:
-        # Nouveau modele avec apprentissage par transfert
-        fichier_modele = f"{nom_modele}.pt"
-        print(f"\n  🧠 Modele     : {nom_modele}")
-        print(f"  📐 Taille img : {taille_image}")
-        print(f"  📦 Taille lot : {taille_lot}")
-        print(f"  🔄 Epochs     : {epochs}")
-        print(f"  ⏱️  Patience   : {patience}")
-        print(f"  ⚙️  Optimiseur : {optimiseur}")
-        print(f"  📉 LR initiale: {cfg_entrainement['lr0']}")
-        print(f"  📊 Donnees    : {data_yaml}")
-        modele = YOLO(fichier_modele)
+    # Nouveau modele avec apprentissage par transfert
+    fichier_modele = f"{nom_modele}.pt"
+    print(f"\n   Modele     : {nom_modele}")
+    print(f"   Taille img : {taille_image}")
+    print(f"   Taille lot : {taille_lot}")
+    print(f"   Epochs     : {epochs}")
+    print(f"   Patience   : {patience}")
+    print(f"   Optimiseur : {optimiseur}")
+    print(f"   LR initiale: {cfg_entrainement['lr0']}")
+    print(f"   Donnees    : {data_yaml}")
+    modele = YOLO(fichier_modele)
 
     # Créer le dossier de résultats
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -199,7 +181,7 @@ def entrainer(arguments):
 
     # Afficher les résultats
     print("\n" + "=" * 50)
-    print("📈 RÉSULTATS DE L'ENTRAÎNEMENT")
+    print(" RÉSULTATS DE L'ENTRAÎNEMENT")
     print("=" * 50)
     print(f"\n  Résultats complets : {RESULTS_DIR / nom_execution}")
     print(f"  Meilleur modèle   : models/best.pt")
@@ -213,38 +195,15 @@ def entrainer(arguments):
     return resultats
 
 
-def valider(arguments):
-    """Valide le modèle sur le jeu de validation."""
-    model_path = MODELS_DIR / "best.pt"
-    if not model_path.exists():
-        print("  ❌ Aucun modèle entraîné trouvé (models/best.pt)")
-        sys.exit(1)
-
-    model = YOLO(str(model_path))
-    data_yaml = str(CONFIG_DIR / "classes.yaml")
-
-    print("\n📊 Validation du modèle...")
-    resultats = model.val(data=data_yaml, verbose=True)
-    return resultats
-
-
 def main():
     parser = argparse.ArgumentParser(description="Entraînement GASPILLOMÈTRE")
-    parser.add_argument("--model", type=str, default=None,
-                        help="Modele YOLOv8 (yolov8n, yolov8s, yolov8m, yolov8l, yolov8x)")
+    parser.add_argument("--model", type=str, default=None, help="Modele YOLOv8 (yolov8n, yolov8s, yolov8m, yolov8l, yolov8x)")
     parser.add_argument("--epochs", type=int, default=None, help="Nombre d'epochs (epoque d'entraînement)")
     parser.add_argument("--batch", type=int, default=None, help="Taille du lot")
-    parser.add_argument("--imgsz", type=int, default=None, help="Taille des images")
-    parser.add_argument("--patience", type=int, default=None,
-                        help="Patience early stopping (mettre > epochs pour éviter un arrêt prématuré)")
-    parser.add_argument("--resume", action="store_true", help="Reprendre le dernier entraînement")
-    parser.add_argument("--validate", action="store_true", help="Mode validation uniquement")
+    parser.add_argument("--patience", type=int, default=None, help="Patience early stopping (mettre > epochs pour éviter un arrêt prématuré)")
     arguments = parser.parse_args()
 
-    if arguments.validate:
-        valider(arguments)
-    else:
-        entrainer(arguments)
+    entrainer(arguments)
 
 
 if __name__ == "__main__":

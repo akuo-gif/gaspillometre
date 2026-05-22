@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import json
-import csv
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -50,7 +49,7 @@ def charger_modele(chemin_modele: str = None) -> YOLO:
         print(f"  Entraînez d'abord avec : python src/train.py")
         sys.exit(1)
 
-    print(f"  🧠 Modèle chargé : {chemin}")
+    print(f"    Modèle chargé : {chemin}")
     return YOLO(str(chemin))
 
 
@@ -71,8 +70,6 @@ class EstimateurPoids:
         self.surface_reference = configuration["weight_estimation"]["reference_tray_area_cm2"]
         self.densites = configuration["weight_estimation"]["density_g_per_cm2"]
         self.noms_classes = noms_classes
-        # TODO: brancher une calibration réelle (balance + surface réelle plateau)
-        # pour remplacer le facteur fixe utilisé plus bas.
 
     def estimer_poids(self, nom_classe: str, ratio_surface_boite: float) -> float:
         """
@@ -92,8 +89,8 @@ class EstimateurPoids:
         densite = self.densites.get(nom_classe, 0.5)  # 0.5 par défaut
 
         # Poids estimé
-        # Facteur 0.7 : la bbox contient ~70% d'aliment en moyenne
-        poids_g = surface_cm2 * densite * 0.7
+        # Facteur 0.8 : la bbox contient ~80% d'aliment en moyenne
+        poids_g = surface_cm2 * densite * 0.8
 
         return round(poids_g, 1)
 
@@ -204,33 +201,33 @@ class DetecteurGaspillage:
 
 
 def journaliser_detection(resultat: dict, nom_image: str, fichier_journal: Path):
-    """Enregistre les résultats dans un fichier CSV."""
+    """Enregistre les resultats dans un fichier JSONL."""
     fichier_journal.parent.mkdir(parents=True, exist_ok=True)
-    fichier_existe = fichier_journal.exists()
 
-    with open(fichier_journal, "a", newline="") as fichier:
-        ecrivain = csv.writer(fichier)
-        if not fichier_existe:
-            ecrivain.writerow([
-                "timestamp", "image", "num_items", "total_weight_g",
-                "aliments_detectes", "details_json"
-            ])
+    def to_jsonable(value):
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, list):
+            return [to_jsonable(v) for v in value]
+        if isinstance(value, dict):
+            return {k: to_jsonable(v) for k, v in value.items()}
+        return value
 
-        aliments = ", ".join([d["class_name"] for d in resultat["detections"]])
-        # Convertir les float32 numpy en float Python pour la sérialisation JSON
-        detections_serialisables = [
-            {k: (float(v) if isinstance(v, (np.floating,)) else v) for k, v in d.items()}
-            for d in resultat["detections"]
-        ]
-        details = json.dumps(detections_serialisables, ensure_ascii=False)
-        ecrivain.writerow([
-            resultat["timestamp"],
-            nom_image,
-            resultat["num_items"],
-            resultat["total_weight_g"],
-            aliments,
-            details,
-        ])
+    aliments = ", ".join([d["class_name"] for d in resultat["detections"]])
+    detections_serialisables = to_jsonable(resultat["detections"])
+    payload = {
+        "timestamp": resultat["timestamp"],
+        "image": nom_image,
+        "num_items": to_jsonable(resultat["num_items"]),
+        "total_weight_g": to_jsonable(resultat["total_weight_g"]),
+        "aliments_detectes": aliments,
+        "detections": detections_serialisables,
+    }
+
+    with open(fichier_journal, "a", encoding="utf-8") as fichier:
+        fichier.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 def traiter_image(detecteur: DetecteurGaspillage, chemin_image: Path, dossier_sortie: Path, fichier_journal: Path):
@@ -242,16 +239,16 @@ def traiter_image(detecteur: DetecteurGaspillage, chemin_image: Path, dossier_so
     # Afficher les résultats
     if resultat["detections"]:
         for det in resultat["detections"]:
-            print(f"    🍽️  {det['class_name']:12s} | confiance: {det['confidence']:.0%} | ~{det['weight_g']}g")
+            print(f"    {det['class_name']:12s} | confiance: {det['confidence']:.0%} | ~{det['weight_g']}g")
         print(f"    {'─' * 45}")
-        print(f"    📊 Total: {resultat['num_items']} aliments, ~{resultat['total_weight_g']}g")
+        print(f"    Total: {resultat['num_items']} aliments, ~{resultat['total_weight_g']}g")
     else:
-        print(f"    ⚪ Aucun aliment detecte (plateau vide ?)")
+        print(f"    Aucun aliment detecte (plateau vide ?)")
 
     # Sauvegarder l'image annotée
     chemin_sortie = dossier_sortie / f"detected_{chemin_image.stem}.jpg"
     cv2.imwrite(str(chemin_sortie), resultat["annotated_image"])
-    print(f"    💾 Sauvegardé : {chemin_sortie.relative_to(PROJECT_ROOT)}")
+    print(f"    Sauvegardé : {chemin_sortie.relative_to(PROJECT_ROOT)}")
 
     # Logger
     journaliser_detection(resultat, chemin_image.name, fichier_journal)
@@ -268,7 +265,7 @@ def main():
     parser.add_argument("--output", type=str, default=None, help="Dossier de sortie")
     arguments = parser.parse_args()
 
-    print("\n🍽️  GASPILLOMÈTRE - Détection et estimation")
+    print("\n  GASPILLOMÈTRE - Détection et estimation")
     print("=" * 50)
 
     # Charger configs et modèle
@@ -284,7 +281,7 @@ def main():
     # Dossier de sortie
     dossier_sortie = Path(arguments.output) if arguments.output else RESULTS_DIR / "detections"
     dossier_sortie.mkdir(parents=True, exist_ok=True)
-    fichier_journal = LOGS_DIR / "detections.csv"
+    fichier_journal = LOGS_DIR / "detections.jsonl"
 
     if arguments.image:
         chemin_image = Path(arguments.image)
@@ -301,10 +298,10 @@ def main():
 
         extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
         images = sorted([f for f in chemin_dossier.iterdir() if f.suffix.lower() in extensions])
-        print(f"\n  📂 {len(images)} images trouvées dans {chemin_dossier}")
+        print(f"\n   {len(images)} images trouvées dans {chemin_dossier}")
 
         if not images:
-            print("  ⚠️  Aucun fichier image compatible trouvé dans ce dossier.")
+            print("    Aucun fichier image compatible trouvé dans ce dossier.")
             print("  TODO: ajouter un mode récursif (--recursive) pour parcourir les sous-dossiers.")
             sys.exit(0)
 
@@ -317,17 +314,16 @@ def main():
         total_items = sum(r["num_items"] for r in tous_resultats)
         total_weight = sum(r["total_weight_g"] for r in tous_resultats)
         print(f"\n{'=' * 50}")
-        print(f"📊 RÉSUMÉ GLOBAL")
+        print(f" RÉSUMÉ GLOBAL")
         print(f"  Plateaux analysés : {len(tous_resultats)}")
         print(f"  Aliments détectés : {total_items}")
         print(f"  Poids total estimé: ~{total_weight:.0f}g ({total_weight/1000:.1f}kg)")
         print(f"  Moyenne/plateau   : ~{total_weight/len(tous_resultats):.0f}g")
-        print(f"\n  📋 Log : {fichier_journal.relative_to(PROJECT_ROOT)}")
-        print(f"  🖼️  Images : {dossier_sortie.relative_to(PROJECT_ROOT)}/")
-        print("  TODO: exporter aussi un rapport JSON consolidé (pas seulement CSV).")
+        print(f"\n   Log : {fichier_journal.relative_to(PROJECT_ROOT)}")
+        print(f"    Images : {dossier_sortie.relative_to(PROJECT_ROOT)}/")
 
     else:
-        print("  ℹ️  Fournissez --image ou --dossier")
+        print("  ℹ  Fournissez --image ou --dossier")
         parser.print_help()
 
     print("\n✅ Terminé !\n")
