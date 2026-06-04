@@ -20,7 +20,7 @@ import numpy as np
 import yaml
 from ultralytics import YOLO
 
-
+# Déclaration des dossiers locaux nécessaires à l'inférence
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"
 MODELS_DIR = PROJECT_ROOT / "models"
@@ -30,6 +30,7 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 
 def charger_configs():
     """Charge toutes les configurations."""
+    # Chargement de la config globale et des noms de classes depuis YAML
     with open(CONFIG_DIR / "config.yaml", "r") as f:
         configuration = yaml.safe_load(f)
     with open(CONFIG_DIR / "classes.yaml", "r") as f:
@@ -72,16 +73,6 @@ class EstimateurPoids:
         self.noms_classes = noms_classes
 
     def estimer_poids(self, nom_classe: str, ratio_surface_boite: float) -> float:
-        """
-        Estime le poids d'un aliment détecté.
-        
-        Args:
-            nom_classe: Nom de la classe d'aliment
-            ratio_surface_boite: Ratio surface bbox / surface image
-        
-        Returns:
-            Poids estimé en grammes
-        """
         # Surface estimée en cm²
         surface_cm2 = ratio_surface_boite * self.surface_reference
 
@@ -116,7 +107,7 @@ class DetecteurGaspillage:
         Returns:
             dict avec détections, poids estimés, et image annotée
         """
-        # Inférence
+        # 1. Inférence YOLO pour trouver les boîtes englobantes
         resultats = self.modele(
             chemin_image,
             conf=self.seuil_confiance,
@@ -125,6 +116,7 @@ class DetecteurGaspillage:
         )
 
         resultat = resultats[0]
+        # 2. Copie de l'image originale pour l'annotation visuelle
         image = resultat.orig_img.copy()
         hauteur_image, largeur_image = image.shape[:2]
         surface_image = hauteur_image * largeur_image
@@ -133,6 +125,7 @@ class DetecteurGaspillage:
         poids_total = 0
 
         if resultat.boxes is not None and len(resultat.boxes) > 0:
+            # 3. Parcours de toutes les détections trouvées
             for boite in resultat.boxes:
                 # Extraire les infos
                 x1, y1, x2, y2 = boite.xyxy[0].cpu().numpy()
@@ -323,7 +316,7 @@ def main():
         print(f"    Images : {dossier_sortie.relative_to(PROJECT_ROOT)}/")
 
     else:
-        print("  ℹ  Fournissez --image ou --dossier")
+        print("Fournissez --image ou --dossier")
         parser.print_help()
 
     print("\n✅ Terminé !\n")

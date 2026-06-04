@@ -14,7 +14,7 @@ import random
 import argparse
 from pathlib import Path
 
-
+# Définition des chemins de base du projet
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_SOURCE_ROOT = PROJECT_ROOT
@@ -22,6 +22,7 @@ DEFAULT_SOURCE_ROOT = PROJECT_ROOT
 
 def creer_dossiers():
     """Crée l'arborescence YOLO attendue."""
+    # Liste des sous-dossiers requis pour YOLO (images et labels, séparés en train/val)
     dossiers = [
         DATA_DIR / "images" / "train",
         DATA_DIR / "images" / "val",
@@ -38,7 +39,9 @@ def trouver_images(dossier_source: Path) -> list:
     """Trouve toutes les images dans un dossier."""
     extensions = {".jpg", ".jpeg", ".png"}
     images = []
+    # Parcourt tous les fichiers du dossier par ordre alphabétique
     for fichier in sorted(dossier_source.iterdir()):
+        # Vérifie si l'extension du fichier (en minuscules) est une image valide
         if fichier.suffix.lower() in extensions:
             images.append(fichier)
     return images
@@ -52,11 +55,14 @@ def trouver_annotation(chemin_image: Path, dossier_labels: Path) -> Path | None:
 
 def separer_jeu_donnees(images: list, labels: dict, ratio_train: float = 0.8, graine: int = 42):
     """Sépare les images annotées en ensembles train/val."""
+    # Fixer la graine pour obtenir toujours la même séparation sur un même jeu de données
     random.seed(graine)
 
+    # Identifier les images possédant une annotation et celles qui n'en ont pas
     annotated = [(img, labels[img]) for img in images if img in labels]
     unannotated = [img for img in images if img not in labels]
 
+    # Mélanger puis diviser en fonction du ratio d'entraînement (par déf. 0.8)
     random.shuffle(annotated)
     index_separation = int(len(annotated) * ratio_train)
     train_set = annotated[:index_separation]

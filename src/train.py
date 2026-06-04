@@ -20,7 +20,7 @@ from datetime import datetime
 import yaml
 from ultralytics import YOLO
 
-
+# Configuration des chemins principaux (config, données d'entrée, résultats)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"
 DATA_DIR = PROJECT_ROOT / "data"
@@ -30,6 +30,7 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 
 def charger_config():
     """Charge la configuration d'entraînement."""
+    # Ouverture et lecture du fichier de configuration général
     with open(CONFIG_DIR / "config.yaml", "r") as f:
         return yaml.safe_load(f)
 
@@ -105,13 +106,16 @@ def entrainer(arguments):
     print("=" * 50)
 
     # Vérifier le dataset
+    # On s'assure d'abord que les dossiers sont bien structurés et non-vides
     if not verifier_jeu_donnees():
         sys.exit(1)
 
     # Charger le modèle
+    # Référence au fichier yaml contenant la liste des classes (ex: viandes, légumes)
     data_yaml = str(CONFIG_DIR / "classes.yaml")
 
     # Nouveau modele avec apprentissage par transfert
+    # Instanciation de l'architecture choisie (ex: yolov8n.pt pour Nano)
     fichier_modele = f"{nom_modele}.pt"
     print(f"\n   Modele     : {nom_modele}")
     print(f"   Taille img : {taille_image}")
@@ -132,6 +136,8 @@ def entrainer(arguments):
     print("  " + "─" * 45)
 
     # Entraînement
+    # Démarrage du processus de Transfer Learning sur vos données spécifiques.
+    # Les paramètres de data augmentation sont passés pour limiter l'overfitting.
     resultats = modele.train(
         data=data_yaml,
         epochs=epochs,
